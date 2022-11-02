@@ -25,7 +25,7 @@ import openai
 
 from typing import NamedTuple
 from database.arangodb import DatabaseConnector
-from config import NEBULA_CONF
+from config.config import NEBULA_CONF
 
 from videoprocessing.vlm_factory import VlmFactory
 from videoprocessing.vlm_interface import VlmInterface
