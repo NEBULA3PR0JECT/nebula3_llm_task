@@ -34,10 +34,12 @@ from videoprocessing.vlm_implementation import VlmChunker, BlipItcVlmImplementat
 
 IPC_PATH = '/storage/ipc_data/paragraphs_v1.json'
 GLOBAL_TOKENS_COLLECTION = 's3_global_tokens'
-# LOCAL_TOKENS_COLLECTION = 's3_local_tokens'
 LOCAL_TOKENS_COLLECTION = 's3_local_yolo'
+# LOCAL_TOKENS_COLLECTION = 's3_local_tokens'
 # LOCAL_TOKENS_COLLECTION = 's3_local_rpn'
+VISUAL_CLUES_COLLECTION = 's4_visual_clues_'
 MOVIES_COLLECTION = "Movies"
+LLM_OUTPUT_COLLECTION = "s4_llm_output"
 FS_GPT_MODEL = 'text-davinci-002'
 FS_SAMPLES = 5                   # Samples for few-shot gpt
 LocalSource = Enum('LocalSource', 'GT RETRIEVAL')
@@ -63,15 +65,16 @@ class NEBULA_DB:
     def __init__(self):
         config = NEBULA_CONF()
         self.db_host = config.get_database_host()
-        # self.database = config.get_playground_name()
+        self.pg_database = config.get_playground_name()
         self.database = config.get_database_name()
         self.gdb = DatabaseConnector()
         self.db = self.gdb.connect_db(self.database)
+        self.pg_db = self.gdb.connect_db(self.pg_database)
 
-    def get_image_id_from_collection(self, id: ImageId,collection=GLOBAL_TOKENS_COLLECTION):
+    def get_image_id_from_collection(self, id: IPCImageId,collection=GLOBAL_TOKENS_COLLECTION):
         results = {}
         query = 'FOR doc IN {} FILTER doc.image_id == {} RETURN doc'.format(collection,id)
-        cursor = self.db.aql.execute(query)
+        cursor = self.pg_db.aql.execute(query)
         for doc in cursor:
             results.update(doc)
         return results
@@ -86,6 +89,24 @@ class NEBULA_DB:
         for doc in cursor:
             rc.update(doc)
         return dict(zip(flatten(rc['mdfs']),rc['mdfs_path']))
+
+    def get_movie_frame_from_collection(self, mid: MovieImageId, collection=VISUAL_CLUES_COLLECTION):
+        results = {}
+        query = 'FOR doc IN {} FILTER doc.movie_id == "{}" AND doc.frame_num == {} RETURN doc'.format(collection,mid.movie_id, mid.frame_num)
+        cursor = self.db.aql.execute(query)
+        for doc in cursor:
+            results.update(doc)
+        return results
+
+    def write_movie_frame_doc_to_collection(self, mid: MovieImageId, mobj: dict, collection: str, check_exists=False):
+        if check_exists:
+            rc = self.get_movie_frame_from_collection(mid,collection)
+            if rc:
+                print("write_movie_frame_doc_to_collection: Document with id {} already exists in collection {}".format(mid,collection))
+                return
+        query = "INSERT {} INTO {}".format(mobj,collection)
+        cursor = self.db.aql.execute(query)  
+
 
 
 def gpt_execute(prompt_template, *args, **kwargs):            
@@ -176,9 +197,13 @@ class ICandidatesFilter(ABC):
         pass
 
 class SubsetCandidatesFilter(ICandidatesFilter):
+    def __init__(self):
+        super().__init__()
+        self.nlp = spacy.load('en_core_web_lg')
+
     def candidates_from_paragraph(self, paragraph: str, vlm: VlmInterface, image_url: str) -> list[str]:
-        senter = nlp.get_pipe("senter")
-        sentences = [str(x) for x in senter(nlp(paragraph)).sents]
+        senter = self.nlp.get_pipe("senter")
+        sentences = [str(x) for x in senter(self.nlp(paragraph)).sents]
         n = len(sentences)
         cands = []
         for i in range(3,n+1):
@@ -186,14 +211,16 @@ class SubsetCandidatesFilter(ICandidatesFilter):
                 cands.append(' '.join(operator.itemgetter(*comb)(sentences)))
         scores = vlm.compute_similarity_url(image_url,cands)
         cand = cands[np.argmax(scores)]
-        return cand
+        return cand    
 
 class FixedThresholdCandidatesFilter(ICandidatesFilter):
     def __init__(self, threshold):
         self.threshold = threshold
+        self.nlp = spacy.load('en_core_web_lg')
+
     def candidates_from_paragraph(self, paragraph: str, vlm: VlmInterface, image_url: str) -> list[str]:
-        senter = nlp.get_pipe("senter")
-        sentences = [str(x) for x in senter(nlp(paragraph)).sents]
+        senter = self.nlp.get_pipe("senter")
+        sentences = [str(x) for x in senter(self.nlp(paragraph)).sents]
         scores = vlm.compute_similarity_url(image_url,sentences)
         # print(scores)
         return ' '.join([x for (x,y) in zip(sentences,scores) if y>self.threshold])
@@ -205,7 +232,7 @@ class GTBaseGenerator:
         self.ipc_data = json.load(open(ipc_path,'r'))
         self.global_captioner = 'blip'
         self.global_tagger = 'blip'
-        self.local_tagger = 'blip'
+        self.local_tagger = 'yolo'
         self.places_source = 'blip'        
         self.num_objects = num_objects
         # self.local_captions = local_captions
@@ -219,20 +246,20 @@ Tags: This image is about {}
 Describe this image in detail:'''
 
     
-    def get_image_structure(self, id: ImageId):
-        global_doc = get_image_id_from_collection(id)
+    def get_image_structure(self, id: IPCImageId):
+        global_doc = self.pipeline.get_image_id_from_collection(id)
         if not global_doc:
             print("Couldn't find global tokens for id {}".format(id))
             return
         rc_doc = {
             'image_id': id,
-            'url': sg.image.url            
+            'url': global_doc['url']    
         }
         for (k,v) in global_doc.items():
             if k.startswith('global'):
                 rc_doc[k]=copy.copy(v)
         rois = []        
-        local_doc = get_image_id_from_collection(id,collection=LOCAL_TOKENS_COLLECTION)
+        local_doc = self.pipeline.get_image_id_from_collection(id,collection=LOCAL_TOKENS_COLLECTION)
         if not local_doc:
             print("Couldn't find local tokens for id {}".format(id))
             return
@@ -254,10 +281,10 @@ Describe this image in detail:'''
 
         return rc_doc
 
-    def get_prompt(self, base_doc, include_local=False, include_attributes=False, include_answer=False, local_captions=False, local_spatial_text = False, reduce_uncertainty = False):
-        # base_doc = self.get_structure(id)
-        # if base_doc == None:
-        #     return
+    def get_prompt(self, id: IPCImageId, include_local=False, include_attributes=False, include_answer=False, local_captions=False, local_spatial_text = False, reduce_uncertainty = False):
+        base_doc = self.get_image_structure(id)
+        if base_doc == None:
+            return
         caption = base_doc['global_captions'][self.global_captioner]
         all_objects = base_doc['global_objects'][self.global_tagger]
         all_persons = base_doc['global_persons'][self.global_tagger]
@@ -290,30 +317,54 @@ Describe this image in detail:'''
             local_prompt = self.local_prefix+'\n'.join(roi_prompts)+'\n'
                
         prompt_before_answer = self.global_prompt1.format(caption,places,objects)
-        if include_answer:
-            id = base_doc['image_id']       # This is a single number in the case of ipc image_id (from visual genome)
-            assert(type(id)==IPCImageId)
+        if include_answer:                 
             [answer] = [x['paragraph'] for x in self.ipc_data if x['image_id']==id]
             final_prompt = prompt_before_answer+" "+answer
         else:
             final_prompt = prompt_before_answer
         return local_prompt+final_prompt
 
+
+    # Ilan changed the format in the database, so this is the respective change in the code parsing the object. This is for YOLO
+
+    def get_movie_frame_prompt(self, mid: MovieImageId, include_local=False, include_attributes=False, local_captions=False, local_spatial_text = False, reduce_uncertainty = False, **kwargs):
+        base_doc = self.pipeline.get_movie_frame_from_collection(mid)
+        caption = base_doc['global_caption'][self.global_captioner]
+        all_objects = base_doc['global_objects'][self.global_tagger]
+        all_persons = base_doc['global_persons'][self.global_tagger]
+        all_places = base_doc['global_scenes'][self.places_source]
+        objects = '; '.join([x[0] for x in all_objects[:8]])
+        persons = '; '.join([x[0] for x in all_persons[:5]])
+        places = ' or '.join([x[0] for x in all_places[:3]])
+        print(objects)
+        print(persons)
+        print(places)
+        print(caption)
+        local_prompt = ""
+        if include_local:
+            roi_prompts = []
+            for roi in base_doc['roi']:
+                local_object = roi['bbox_object']
+                roi_prompt = self.local_prompt.format(local_object)
+                roi_prompts.append(roi_prompt)
+            local_prompt = self.local_prefix+'\n'.join(roi_prompts)+'\n'
+               
+        prompt_before_answer = self.global_prompt1.format(caption,places,objects)
+        final_prompt = prompt_before_answer
+        return local_prompt+final_prompt
+
     def generate_prompt(self, ids: list[IPCImageId], target_id: ImageId = None, **kwargs):
         rc = []
-        for id in ids:
-            rc_doc = self.get_image_structure(id)
-            if not rc_doc:
-                return None
-            rc.append(self.get_prompt(rc_doc,include_answer=True, **kwargs))
-        if target_id:
-            rc_doc = self.get_image_structure(target_id)
-            if not rc_doc:
-                return None
-            rc.append(self.get_prompt(target_id,include_answer=False, **kwargs))
+        for id in ids:  
+            rc.append(self.get_prompt(id,include_answer=True, **kwargs))
+        if target_id:  
+            if type(target_id) == MovieImageId:
+                rc.append(self.get_movie_frame_prompt(target_id,include_answer=False, **kwargs))
+            else:
+                rc.append(self.get_prompt(target_id,include_answer=False, **kwargs))
         return '\n'.join(rc)
 
-    def few_shot_process_target_id(fs_ids: list[IPCImageId],target_id: ImageId, n=1, debug_print_prompt=False, **kwargs):
+    def few_shot_process_target_id(self, fs_ids: list[IPCImageId],target_id: ImageId, n=5, debug_print_prompt=False, **kwargs):
         fs_prompt = self.generate_prompt(fs_ids, target_id=target_id, **kwargs)
         if debug_print_prompt:
             print("Prompt:\n---------------------------------\n")
@@ -343,14 +394,16 @@ class LlmTaskInternal:
         cursor = self.nebula_db.db.aql.execute(query)
         return [doc for doc in cursor]
 
-    def process_target_id(self, target_id: ImageId, image_url=None, fs_samples=FS_SAMPLES, cand_filter=SubsetCandidatesFilter(), n=5, **kwargs):
+    def process_target_id(self, target_id: ImageId, image_url=None, fs_samples=FS_SAMPLES, cand_filter=SubsetCandidatesFilter(),  **kwargs):
         if image_url == None:
-            image_url = self.nebula_db.get_image_url(target_id)
+            rc = self.nebula_db.get_movie_frame_from_collection(target_id)
+            assert(rc)
+            image_url = rc['url']
         print("Processing target_id {}, url: {}".format(target_id,image_url))
-        train_ids = np.random.choice(self.s3_train,fs_samples)
-        rc = self.prompt_obj.few_shot_process_target_id(train_ids, target_id, n=n, **kwargs)
-        candidates = [self.cand_filter.candidates_from_paragraph(x,vlm,image_url) for x in rc]
-        scores = vlm.compute_similarity_url(image_url,candidates)
+        train_ids = np.random.choice(self.s3_ids,fs_samples)
+        rc = self.prompt_obj.few_shot_process_target_id(train_ids, target_id, **kwargs)
+        candidates = [self.cand_filter.candidates_from_paragraph(x,self.vlm,image_url) for x in rc]
+        scores = self.vlm.compute_similarity_url(image_url,candidates)
         cand = candidates[np.argmax(scores)]
         rc = {
             'url': image_url,
@@ -358,5 +411,18 @@ class LlmTaskInternal:
             'candidate': cand
         }
         return {**image_id_as_dict(target_id), **rc}
+
+    def process_movie(self, movie_id: str, **kwargs):
+        mdfs = self.nebula_db.get_movie_structure(movie_id)
+        for frame in mdfs.keys():
+            mid = MovieImageId(movie_id,frame)
+            print('Processing movie {}, frame #{}'.format(movie_id,frame))
+            rc = self.process_target_id(mid, **kwargs)
+            if rc:
+                self.nebula_db.write_movie_frame_doc_to_collection(mid,rc,LLM_OUTPUT_COLLECTION)
+            else:
+                return False,1
+        return True, None
+
 
     
