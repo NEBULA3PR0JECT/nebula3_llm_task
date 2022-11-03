@@ -40,6 +40,7 @@ LOCAL_TOKENS_COLLECTION = 's3_local_yolo'
 VISUAL_CLUES_COLLECTION = 's4_visual_clues_'
 MOVIES_COLLECTION = "Movies"
 LLM_OUTPUT_COLLECTION = "s4_llm_output"
+KEY_COLLECTION = "llm_config"
 FS_GPT_MODEL = 'text-davinci-002'
 FS_SAMPLES = 5                   # Samples for few-shot gpt
 LocalSource = Enum('LocalSource', 'GT RETRIEVAL')
@@ -106,6 +107,15 @@ class NEBULA_DB:
                 return
         query = "INSERT {} INTO {}".format(mobj,collection)
         cursor = self.db.aql.execute(query)  
+
+    def get_llm_key(self):
+        results = {}
+        query = 'FOR doc IN {} FILTER doc.keyname == "openai" RETURN doc'.format(KEY_COLLECTION,)
+        cursor = self.db.aql.execute(query)
+        for doc in cursor:
+            results.update(doc)
+        return results['keyval']
+
 
 
 
@@ -382,9 +392,12 @@ class LlmTaskInternal:
         self.vlm = VlmChunker(VlmFactory().get_vlm("blip_itc"), chunk_size=50)
         self.cand_filter = SubsetCandidatesFilter()
 
-        with open('/storage/keys/openai.key','r') as f:
-            OPENAI_API_KEY = f.readline().strip()
-        openai.api_key = OPENAI_API_KEY
+        try:
+            with open('/storage/keys/openai.key','r') as f:
+                OPENAI_API_KEY = f.readline().strip()
+            openai.api_key = OPENAI_API_KEY
+        except:
+            openai.api_key = self.nebula_db.get_llm_key()
 
         with open('s3_ids.json','r') as f:
             self.s3_ids = json.load(f)
