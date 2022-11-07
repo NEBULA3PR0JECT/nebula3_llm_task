@@ -30,7 +30,6 @@ from config.config import NEBULA_CONF
 from videoprocessing.vlm_factory import VlmFactory
 from videoprocessing.vlm_interface import VlmInterface
 from videoprocessing.vlm_implementation import VlmChunker, BlipItcVlmImplementation
-from vg_eval import spice_get_triplets
 
 
 IPC_PATH = '/storage/ipc_data/paragraphs_v1.json'
@@ -63,6 +62,25 @@ def image_id_as_dict(id: ImageId):
 
 def flatten(lst): return [x for l in lst for x in l]
 
+def spice_get_triplets(text):
+    SPICE_FNAME = '/notebooks/SPICE-1.0/spice-1.0.jar'
+    INP_FNAME = '/tmp/example.json'
+    OUT_FNAME = '/tmp/example_output.json'
+    inp = {
+        'image_id': 1,
+        'test': "",
+        'refs': [text],        
+    }
+    json.dump([inp],open(INP_FNAME,'w'))
+    p = subprocess.Popen('java -Xmx8G -jar {} {} -detailed -silent -subset -out {}'.format(SPICE_FNAME,INP_FNAME,OUT_FNAME),shell=True,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE)
+    p.communicate()
+    outp = json.load(open(OUT_FNAME,'r'))
+    return [x['tuple'] for x in outp[0]['ref_tuples']]
+    
+    
 class NEBULA_DB:
     def __init__(self):
         config = NEBULA_CONF()
