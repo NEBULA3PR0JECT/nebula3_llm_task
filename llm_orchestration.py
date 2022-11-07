@@ -30,6 +30,7 @@ from config.config import NEBULA_CONF
 from videoprocessing.vlm_factory import VlmFactory
 from videoprocessing.vlm_interface import VlmInterface
 from videoprocessing.vlm_implementation import VlmChunker, BlipItcVlmImplementation
+from vg_eval import spice_get_triplets
 
 
 IPC_PATH = '/storage/ipc_data/paragraphs_v1.json'
@@ -418,10 +419,12 @@ class LlmTaskInternal:
         candidates = [self.cand_filter.candidates_from_paragraph(x,self.vlm,image_url) for x in rc]
         scores = self.vlm.compute_similarity_url(image_url,candidates)
         cand = candidates[np.argmax(scores)]
+        sg = spice_get_triplets(cand)
         rc = {
             'url': image_url,
             'paragraphs': rc,
-            'candidate': cand
+            'candidate': cand,
+            'triplets': sg
         }
         return {**image_id_as_dict(target_id), **rc}
 
