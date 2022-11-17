@@ -1,9 +1,5 @@
 import sys
-sys.path.insert(0, "/notebooks/pipenv")
-sys.path.insert(0, "/notebooks/nebula3_database")
-sys.path.insert(0, "/notebooks/nebula3_experiments")
-sys.path.insert(0, "/notebooks/nebula3_videoprocessing")
-sys.path.insert(0, "/notebooks/")
+# python -m spacy download en_core_web_lg
 
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -16,6 +12,7 @@ import itertools
 import subprocess
 import time
 import typing
+import os
 
 import numpy as np
 import torch
@@ -27,9 +24,9 @@ from typing import NamedTuple
 from database.arangodb import DatabaseConnector
 from config.config import NEBULA_CONF
 
-from videoprocessing.vlm_factory import VlmFactory
-from videoprocessing.vlm_interface import VlmInterface
-from videoprocessing.vlm_implementation import VlmChunker, BlipItcVlmImplementation
+from visual_clues.vlm_factory import VlmFactory
+from visual_clues.vlm_interface import VlmInterface
+from visual_clues.vlm_implementation import VlmChunker, BlipItcVlmImplementation
 
 
 IPC_PATH = '/storage/ipc_data/paragraphs_v1.json'
@@ -63,7 +60,7 @@ def image_id_as_dict(id: ImageId):
 def flatten(lst): return [x for l in lst for x in l]
 
 def spice_get_triplets(text):
-    SPICE_FNAME = '/notebooks/SPICE-1.0/spice-1.0.jar'
+    SPICE_FNAME = '/app_data/SPICE-1.0/spice-1.0.jar'
     INP_FNAME = '/tmp/example.json'
     OUT_FNAME = '/tmp/example_output.json'
     inp = {
@@ -418,7 +415,8 @@ class LlmTaskInternal:
         except:
             openai.api_key = self.nebula_db.get_llm_key()
 
-        with open('s3_ids.json','r') as f:
+        current_path = os.path.join(os.path.abspath(__file__ + "/.."))
+        with open(os.path.join(current_path,'s3_ids.json'),'r') as f:
             self.s3_ids = json.load(f)
 
     def get_all_s3_ids(self):

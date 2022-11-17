@@ -1,7 +1,7 @@
 import os
 from typing import Tuple
 from llm_orchestration import *
-from nebula3_database.movie.movie_db import MOVIE_DB
+from movie.movie_db import MOVIE_DB
 from experts.pipeline.api import PipelineApi, PipelineTask
 
 def test_pipeline_task(pipeline_id):
@@ -29,7 +29,10 @@ def test_pipeline_task(pipeline_id):
 def test():
     pipeline_id = os.environ.get('PIPELINE_ID')
     # print(pipeline_id)
-    # pipeline_id='12345678'
+    if pipeline_id == None:
+        print("Error: Pipeline id is None!")
+        pipeline_id = 'b780544f-78d0-43f6-9407-6545dc6ea1d6'
+        print("Using default pipeline id: {}".format(pipeline_id))
     test_pipeline_task(pipeline_id)
 
 if __name__ == '__main__':
