@@ -24,7 +24,7 @@ import nltk
 import openai
 
 from typing import NamedTuple
-from database.arangodb import DatabaseConnector
+from database.arangodb import DatabaseConnector, DBBase
 from config.config import NEBULA_CONF
 
 from videoprocessing.vlm_factory import VlmFactory
@@ -81,14 +81,10 @@ def spice_get_triplets(text):
     return [x['tuple'] for x in outp[0]['ref_tuples']]
     
     
-class NEBULA_DB:
+class NEBULA_DB(DBBase):
     def __init__(self):
-        config = NEBULA_CONF()
-        self.db_host = config.get_database_host()
-        self.pg_database = config.get_playground_name()
-        self.database = config.get_database_name()
-        self.gdb = DatabaseConnector()
-        self.db = self.gdb.connect_db(self.database)
+        super().__init__() 
+        self.pg_database = self.config.get_playground_name()
         self.pg_db = self.gdb.connect_db(self.pg_database)
 
     def get_image_id_from_collection(self, id: IPCImageId,collection=GLOBAL_TOKENS_COLLECTION):
@@ -102,31 +98,16 @@ class NEBULA_DB:
     def get_image_url(self, id: MovieImageId) -> str:
         return 'no url for now'
 
-    def get_movie_structure(self, movie_id: str):
-        rc = {}
-        query = 'FOR doc IN {} FILTER doc._id == "{}" RETURN doc'.format(MOVIES_COLLECTION,movie_id)
-        cursor = self.db.aql.execute(query)
-        for doc in cursor:
-            rc.update(doc)
+    def get_movie_structure(self, movie_id: str):     
+        rc = self.get_doc_by_key({'_id': movie_id}, MOVIES_COLLECTION)
         return dict(zip(flatten(rc['mdfs']),rc['mdfs_path']))
 
     def get_movie_frame_from_collection(self, mid: MovieImageId, collection=VISUAL_CLUES_COLLECTION):
-        results = {}
-        query = 'FOR doc IN {} FILTER doc.movie_id == "{}" AND doc.frame_num == {} RETURN doc'.format(collection,mid.movie_id, mid.frame_num)
-        cursor = self.db.aql.execute(query)
-        for doc in cursor:
-            results.update(doc)
-        return results
-
-    def write_movie_frame_doc_to_collection(self, mid: MovieImageId, mobj: dict, collection: str, check_exists=False):
-        if check_exists:
-            rc = self.get_movie_frame_from_collection(mid,collection)
-            if rc:
-                print("write_movie_frame_doc_to_collection: Document with id {} already exists in collection {}".format(mid,collection))
-                return
-        query = "INSERT {} INTO {}".format(mobj,collection)
-        cursor = self.db.aql.execute(query)  
-
+        return self.get_doc_by_key(image_id_as_dict(mid),collection=collection)
+        
+    def write_movie_frame_doc_to_collection(self, mid: MovieImageId, mobj: dict, *args, **kwargs):
+       return self.write_doc_by_key(mobj, *args, key_list = ['movie_id', 'frame_num'], **kwargs)
+    
     def get_llm_key(self):
         results = {}
         query = 'FOR doc IN {} FILTER doc.keyname == "openai" RETURN doc'.format(KEY_COLLECTION,)
