@@ -1,9 +1,5 @@
 import sys
-sys.path.insert(0, "/notebooks/pipenv")
-sys.path.insert(0, "/notebooks/nebula3_database")
-sys.path.insert(0, "/notebooks/nebula3_experiments")
-sys.path.insert(0, "/notebooks/nebula3_videoprocessing")
-sys.path.insert(0, "/notebooks/")
+# python -m spacy download en_core_web_lg
 
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -16,6 +12,7 @@ import itertools
 import subprocess
 import time
 import typing
+import os
 
 import numpy as np
 import torch
@@ -24,12 +21,12 @@ import nltk
 import openai
 
 from typing import NamedTuple
-from database.arangodb import DatabaseConnector
+from database.arangodb import DatabaseConnector, DBBase
 from config.config import NEBULA_CONF
 
-from videoprocessing.vlm_factory import VlmFactory
-from videoprocessing.vlm_interface import VlmInterface
-from videoprocessing.vlm_implementation import VlmChunker, BlipItcVlmImplementation
+from visual_clues.vlm_factory import VlmFactory
+from visual_clues.vlm_interface import VlmInterface
+from visual_clues.vlm_implementation import VlmChunker, BlipItcVlmImplementation
 
 
 IPC_PATH = '/storage/ipc_data/paragraphs_v1.json'
@@ -63,7 +60,7 @@ def image_id_as_dict(id: ImageId):
 def flatten(lst): return [x for l in lst for x in l]
 
 def spice_get_triplets(text):
-    SPICE_FNAME = '/notebooks/SPICE-1.0/spice-1.0.jar'
+    SPICE_FNAME = '/app_data/SPICE-1.0/spice-1.0.jar'
     INP_FNAME = '/tmp/example.json'
     OUT_FNAME = '/tmp/example_output.json'
     inp = {
@@ -81,14 +78,10 @@ def spice_get_triplets(text):
     return [x['tuple'] for x in outp[0]['ref_tuples']]
     
     
-class NEBULA_DB:
+class NEBULA_DB(DBBase):
     def __init__(self):
-        config = NEBULA_CONF()
-        self.db_host = config.get_database_host()
-        self.pg_database = config.get_playground_name()
-        self.database = config.get_database_name()
-        self.gdb = DatabaseConnector()
-        self.db = self.gdb.connect_db(self.database)
+        super().__init__() 
+        self.pg_database = self.config.get_playground_name()
         self.pg_db = self.gdb.connect_db(self.pg_database)
 
     def get_image_id_from_collection(self, id: IPCImageId,collection=GLOBAL_TOKENS_COLLECTION):
@@ -102,31 +95,16 @@ class NEBULA_DB:
     def get_image_url(self, id: MovieImageId) -> str:
         return 'no url for now'
 
-    def get_movie_structure(self, movie_id: str):
-        rc = {}
-        query = 'FOR doc IN {} FILTER doc._id == "{}" RETURN doc'.format(MOVIES_COLLECTION,movie_id)
-        cursor = self.db.aql.execute(query)
-        for doc in cursor:
-            rc.update(doc)
+    def get_movie_structure(self, movie_id: str):     
+        rc = self.get_doc_by_key({'_id': movie_id}, MOVIES_COLLECTION)
         return dict(zip(flatten(rc['mdfs']),rc['mdfs_path']))
 
     def get_movie_frame_from_collection(self, mid: MovieImageId, collection=VISUAL_CLUES_COLLECTION):
-        results = {}
-        query = 'FOR doc IN {} FILTER doc.movie_id == "{}" AND doc.frame_num == {} RETURN doc'.format(collection,mid.movie_id, mid.frame_num)
-        cursor = self.db.aql.execute(query)
-        for doc in cursor:
-            results.update(doc)
-        return results
-
-    def write_movie_frame_doc_to_collection(self, mid: MovieImageId, mobj: dict, collection: str, check_exists=False):
-        if check_exists:
-            rc = self.get_movie_frame_from_collection(mid,collection)
-            if rc:
-                print("write_movie_frame_doc_to_collection: Document with id {} already exists in collection {}".format(mid,collection))
-                return
-        query = "INSERT {} INTO {}".format(mobj,collection)
-        cursor = self.db.aql.execute(query)  
-
+        return self.get_doc_by_key(image_id_as_dict(mid),collection=collection)
+        
+    def write_movie_frame_doc_to_collection(self, mid: MovieImageId, mobj: dict, *args, **kwargs):
+       return self.write_doc_by_key(mobj, *args, key_list = ['movie_id', 'frame_num'], **kwargs)
+    
     def get_llm_key(self):
         results = {}
         query = 'FOR doc IN {} FILTER doc.keyname == "openai" RETURN doc'.format(KEY_COLLECTION,)
@@ -419,7 +397,8 @@ class LlmTaskInternal:
         except:
             openai.api_key = self.nebula_db.get_llm_key()
 
-        with open('s3_ids.json','r') as f:
+        current_path = os.path.join(os.path.abspath(__file__ + "/.."))
+        with open(os.path.join(current_path,'s3_ids.json'),'r') as f:
             self.s3_ids = json.load(f)
 
     def get_all_s3_ids(self):
