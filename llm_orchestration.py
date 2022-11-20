@@ -234,10 +234,11 @@ class SubsetCandidatesFilter(ICandidatesFilter):
         senter = self.nlp.get_pipe("senter")
         sentences = [str(x) for x in senter(self.nlp(paragraph)).sents]
         n = len(sentences)
+        min_sentences = 3 if n>=3 else 1
         cands = []
-        for i in range(3,n+1):
+        for i in range(min_sentences,n+1):
             for comb in itertools.combinations(range(n),i):
-                cands.append(' '.join(operator.itemgetter(*comb)(sentences)))
+                cands.append(' '.join(operator.itemgetter(*comb)(sentences)))        
         scores = vlm.compute_similarity_url(image_url,cands)
         cand = cands[np.argmax(scores)]
         return cand    
@@ -250,8 +251,7 @@ class FixedThresholdCandidatesFilter(ICandidatesFilter):
     def candidates_from_paragraph(self, paragraph: str, vlm: VlmInterface, image_url: str) -> list[str]:
         senter = self.nlp.get_pipe("senter")
         sentences = [str(x) for x in senter(self.nlp(paragraph)).sents]
-        scores = vlm.compute_similarity_url(image_url,sentences)
-        # print(scores)
+        scores = vlm.compute_similarity_url(image_url,sentences)        
         return ' '.join([x for (x,y) in zip(sentences,scores) if y>self.threshold])
 
 
@@ -409,7 +409,8 @@ class LlmTaskInternal:
         self.nebula_db = NEBULA_DB()
         self.prompt_obj = GTBaseGenerator()
         self.vlm = VlmChunker(VlmFactory().get_vlm("blip_itc"), chunk_size=50)
-        self.cand_filter = SubsetCandidatesFilter()
+        # self.cand_filter =  SubsetCandidatesFilter()
+        self.cand_filter = FixedThresholdCandidatesFilter(0.27)
 
         try:
             with open('/storage/keys/openai.key','r') as f:
