@@ -294,7 +294,7 @@ Describe this image in detail:'''
             return
         caption = base_doc['global_captions'][self.global_captioner]
         all_objects = base_doc['global_objects'][self.global_tagger]
-        all_persons = base_doc['global_persons'][self.global_tagger]
+        # all_persons = base_doc['global_persons'][self.global_tagger]
         all_places = base_doc['global_scenes'][self.places_source]
         # print("Caption: {}".format(caption))
         # print("Objects: ")
@@ -304,7 +304,7 @@ Describe this image in detail:'''
         # print("Persons:")
         # print(all_persons[:5])
         objects = '; '.join([x['label'] for x in all_objects[:8]])
-        persons = '; '.join([x['label'] for x in all_persons[:5]])
+        # persons = '; '.join([x['label'] for x in all_persons[:5]])
         places = ' or '.join([x['label'] for x in all_places[:3]])
         local_prompt = ""
         if include_local:
@@ -338,13 +338,13 @@ Describe this image in detail:'''
         base_doc = self.pipeline.get_movie_frame_from_collection(mid)
         caption = base_doc['global_caption'][self.global_captioner]
         all_objects = base_doc['global_objects'][self.global_tagger]
-        all_persons = base_doc['global_persons'][self.global_tagger]
+        # all_persons = base_doc['global_persons'][self.global_tagger]
         all_places = base_doc['global_scenes'][self.places_source]
         objects = '; '.join([x[0] for x in all_objects[:8]])
-        persons = '; '.join([x[0] for x in all_persons[:5]])
+        # persons = '; '.join([x[0] for x in all_persons[:5]])
         places = ' or '.join([x[0] for x in all_places[:3]])
         print(objects)
-        print(persons)
+        # print(persons)
         print(places)
         print(caption)
         local_prompt = ""
