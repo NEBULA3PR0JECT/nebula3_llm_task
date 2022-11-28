@@ -363,6 +363,7 @@ Describe this image in detail:'''
     def generate_prompt(self, ids: list[IPCImageId], target_id: ImageId = None, **kwargs):
         rc = []
         for id in ids:  
+            print(f'Get prompt of id: {id}')
             rc.append(self.get_prompt(id,include_answer=True, **kwargs))
         if target_id:  
             if type(target_id) == MovieImageId:
