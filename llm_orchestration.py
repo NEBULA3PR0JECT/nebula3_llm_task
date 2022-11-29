@@ -88,6 +88,7 @@ class NEBULA_DB(DBBase):
         results = {}
         query = 'FOR doc IN {} FILTER doc.image_id == {} RETURN doc'.format(collection,id)
         print("Quering database:")
+        print(self.pg_database)
         print(self.pg_db)
         cursor = self.pg_db.aql.execute(query)
         for doc in cursor:
