@@ -1,4 +1,5 @@
 import sys
+# sys.path.insert(0,'/notebooks/nebula3_database')
 # python -m spacy download en_core_web_lg
 
 from abc import ABC, abstractmethod
@@ -111,7 +112,7 @@ class NEBULA_DB(DBBase):
     def get_llm_key(self):
         results = {}
         query = 'FOR doc IN {} FILTER doc.keyname == "openai" RETURN doc'.format(KEY_COLLECTION,)
-        cursor = self.db.aql.execute(query)
+        cursor = self.pg_db.aql.execute(query)
         for doc in cursor:
             results.update(doc)
         return results['keyval']
@@ -373,7 +374,7 @@ Describe this image in detail:'''
                 rc.append(self.get_movie_frame_prompt(target_id,include_answer=False, **kwargs))
             else:
                 rc.append(self.get_prompt(target_id,include_answer=False, **kwargs))
-        return '\n'.join(rc)
+        return '\n###\n'.join(rc)
 
     def few_shot_process_target_id(self, fs_ids: list[IPCImageId],target_id: ImageId, n=5, debug_print_prompt=False, **kwargs):
         fs_prompt = self.generate_prompt(fs_ids, target_id=target_id, **kwargs)
