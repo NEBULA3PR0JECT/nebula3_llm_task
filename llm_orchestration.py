@@ -117,15 +117,20 @@ class NEBULA_DB(DBBase):
             results.update(doc)
         return results['keyval']
 
-
-
-
 def gpt_execute(prompt_template, *args, **kwargs):            
     prompt = prompt_template.format(*args)   
-    response = openai.Completion.create(prompt=prompt, max_tokens=256, **kwargs)   
-    # return response
-    return [x['text'].strip() for x in response['choices']]
-
+    done = 10
+    while done>0:
+        try:
+            response = openai.Completion.create(prompt=prompt, max_tokens=256, **kwargs)   
+            # return response
+            return [x['text'].strip() for x in response['choices']]
+        except Exception as e:
+            print('Error, re-trying {} times'.format(done))
+            print(e)
+            time.sleep(10)
+            done -= 1
+    
 def get_size_text(rect: [int, int, int, int], size: [int, int]):
     rect_size = (rect[2]-rect[0])*(rect[3]-rect[1])
     img_size = size[0]*size[1]
