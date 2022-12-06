@@ -5,3 +5,4 @@ python-arango==7.2.0
 wget==3.2
 langchain
 accelerate
+spacy_wordnet
