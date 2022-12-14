@@ -22,7 +22,7 @@ import nltk
 import openai
 
 from typing import NamedTuple
-from database.arangodb import DatabaseConnector, DBBase
+from database.arangodb import DatabaseConnector, DBBase, NEBULA_DB
 from config.config import NEBULA_CONF
 
 from visual_clues.vlm_factory import VlmFactory
