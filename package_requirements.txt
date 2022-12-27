@@ -1,4 +1,4 @@
-nebula3-database
-nebula3-experts
-nebula3-visual-clues
+nebula3-database==0.2.19
+nebula3-experts==1.4.2
+nebula3-visual-clues==0.0.8
 nebula3-vg-driver
